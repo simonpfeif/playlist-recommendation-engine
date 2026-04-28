@@ -17,3 +17,4 @@ notes
 # Secrets
 .env
 spotify_tokens.json
+*.tfvars

@@ -50,6 +50,15 @@ resource "aws_lambda_function" "api" {
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
+  timeout = 30
+
+  environment {
+    variables = {
+        SPOTIFY_CLIENT_ID = var.spotify_client_id
+        SPOTIFY_CLIENT_SECRET = var.spotify_client_secret
+        SPOTIFY_REFRESH_TOKEN = var.spotify_refresh_token
+    }
+  }
 }
 
 # API Gateway
