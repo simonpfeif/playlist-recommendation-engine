@@ -50,13 +50,13 @@ resource "aws_lambda_function" "api" {
   handler          = "handler.lambda_handler"
   runtime          = "python3.12"
   source_code_hash = data.archive_file.lambda_zip.output_base64sha256
-  timeout = 30
+  timeout          = 30
 
   environment {
     variables = {
-        SPOTIFY_CLIENT_ID = var.spotify_client_id
-        SPOTIFY_CLIENT_SECRET = var.spotify_client_secret
-        SPOTIFY_REFRESH_TOKEN = var.spotify_refresh_token
+      SPOTIFY_CLIENT_ID     = var.spotify_client_id
+      SPOTIFY_CLIENT_SECRET = var.spotify_client_secret
+      SPOTIFY_REFRESH_TOKEN = var.spotify_refresh_token
     }
   }
 }
@@ -96,4 +96,22 @@ resource "aws_lambda_permission" "apigw" {
   function_name = aws_lambda_function.api.function_name
   principal     = "apigateway.amazonaws.com"
   source_arn    = "${aws_apigatewayv2_api.gateway.execution_arn}/*/*"
+}
+
+# DynamoDB table for processed listening data
+resource "aws_dynamodb_table" "listening_data" {
+  name         = "playlist-recommendation-engine-listening-data"
+  billing_mode = "PAY_PER_REQUEST"
+  hash_key     = "pk"
+  range_key    = "sk"
+
+  attribute {
+    name = "pk"
+    type = "S"
+  }
+
+  attribute {
+    name = "sk"
+    type = "S"
+  }
 }
