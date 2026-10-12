@@ -35,6 +35,46 @@ resource "aws_iam_role_policy_attachment" "lambda_basic" {
   policy_arn = "arn:aws:iam::aws:policy/service-role/AWSLambdaBasicExecutionRole"
 }
 
+locals {
+  ssm_prefix = "/playlist-recommendation-engine/spotify"
+}
+
+# Spotify credentials, read by the Lambda at runtime
+resource "aws_ssm_parameter" "spotify_client_id" {
+  name  = "${local.ssm_prefix}/client_id"
+  type  = "SecureString"
+  value = var.spotify_client_id
+}
+
+resource "aws_ssm_parameter" "spotify_client_secret" {
+  name  = "${local.ssm_prefix}/client_secret"
+  type  = "SecureString"
+  value = var.spotify_client_secret
+}
+
+resource "aws_ssm_parameter" "spotify_refresh_token" {
+  name  = "${local.ssm_prefix}/refresh_token"
+  type  = "SecureString"
+  value = var.spotify_refresh_token
+}
+
+# Let Lambda read the Spotify credentials
+resource "aws_iam_role_policy" "lambda_ssm" {
+  name = "read-spotify-credentials"
+  role = aws_iam_role.lambda_role.id
+
+  policy = jsonencode({
+    Version = "2012-10-17"
+    Statement = [
+      {
+        Action   = ["ssm:GetParameters"]
+        Effect   = "Allow"
+        Resource = "arn:aws:ssm:${var.aws_region}:*:parameter${local.ssm_prefix}/*"
+      }
+    ]
+  })
+}
+
 # Zip up the lambda code
 data "archive_file" "lambda_zip" {
   type        = "zip"
@@ -54,9 +94,7 @@ resource "aws_lambda_function" "api" {
 
   environment {
     variables = {
-      SPOTIFY_CLIENT_ID     = var.spotify_client_id
-      SPOTIFY_CLIENT_SECRET = var.spotify_client_secret
-      SPOTIFY_REFRESH_TOKEN = var.spotify_refresh_token
+      SSM_PREFIX = local.ssm_prefix
     }
   }
 }
@@ -79,7 +117,9 @@ resource "aws_apigatewayv2_integration" "lambda" {
 resource "aws_apigatewayv2_route" "get" {
   api_id    = aws_apigatewayv2_api.gateway.id
   route_key = "GET /"
-  target    = "integrations/${aws_apigatewayv2_integration.lambda.id}"
+  # Not public: callers must sign requests with AWS credentials
+  authorization_type = "AWS_IAM"
+  target             = "integrations/${aws_apigatewayv2_integration.lambda.id}"
 }
 
 # Deploy the API

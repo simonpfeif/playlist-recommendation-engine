@@ -2,13 +2,23 @@ import json
 import os
 import urllib.request
 import urllib.parse
+import boto3
+
+ssm = boto3.client("ssm")
+
+def get_spotify_credentials():
+    prefix = os.environ["SSM_PREFIX"]
+    names = [f"{prefix}/client_id", f"{prefix}/client_secret", f"{prefix}/refresh_token"]
+    resp = ssm.get_parameters(Names=names, WithDecryption=True)
+    return {p["Name"].rsplit("/", 1)[1]: p["Value"] for p in resp["Parameters"]}
 
 def get_access_token():
+    creds = get_spotify_credentials()
     data = urllib.parse.urlencode({
         "grant_type": "refresh_token",
-        "refresh_token": os.environ["SPOTIFY_REFRESH_TOKEN"],
-        "client_id": os.environ["SPOTIFY_CLIENT_ID"],
-        "client_secret": os.environ["SPOTIFY_CLIENT_SECRET"]
+        "refresh_token": creds["refresh_token"],
+        "client_id": creds["client_id"],
+        "client_secret": creds["client_secret"]
     }).encode()
 
     req = urllib.request.Request("https://accounts.spotify.com/api/token", data=data)
@@ -53,7 +63,7 @@ def lambda_handler(event, context):
                 "artist": t["artists"][0]["name"],
                 "artist_id": t["artists"][0]["id"],
                 "album": t["album"]["name"],
-                "popularity": t["popularity"],
+                "popularity": t.get("popularity"),
                 "duration_ms": t["duration_ms"]
             }
             for t in items
@@ -67,15 +77,15 @@ def lambda_handler(event, context):
             "track_name": item["track"]["name"],
             "artist": item["track"]["artists"][0]["name"],
             "played_at": item["played_at"],
-            "popularity": item["track"]["popularity"]
+            "popularity": item["track"].get("popularity")
         })
 
     # Extract genre map from top artists
     genre_map = [
         {
             "artist": a["name"],
-            "genres": a["genres"],
-            "popularity": a["popularity"]
+            "genres": a.get("genres", []),
+            "popularity": a.get("popularity")
         }
         for a in artists["items"]
     ]

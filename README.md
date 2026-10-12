@@ -43,18 +43,20 @@ All infrastructure is in Terraform, and the layout mirrors the MFE → BFF → A
 
 | Layer | Tech | Status |
 |---|---|---|
-| DB | DynamoDB (single table) | defined, not deployed |
+| DB | DynamoDB (single table) | deployed, empty |
 | API | Python 3.12 Lambdas (stdlib only, no packaging) | API Lambda deployed |
 | BFF | Node.js Lambda | planned (Phase 4) |
 | MFE | React | planned (Phase 4) |
 | Scheduling | EventBridge (hourly ingest, weekly playlist) | planned (Phase 3) |
-| Secrets | SSM Parameter Store | planned (Phase 0) |
+| Secrets | SSM Parameter Store | done |
 
 ## Repo layout
 
 ```
 lambda/api/handler.py      API Lambda: returns top tracks, recent plays, genres
 scripts/spotify_auth.py    One-time OAuth flow that gets a Spotify refresh token
+scripts/verify_spotify.py  Checks which Spotify endpoints still work for this app
+scripts/verify_lastfm.py   Checks the Last.fm endpoints the recommender uses
 terraform/                 Lambda, API Gateway, IAM, DynamoDB
 PLAN.md                    Roadmap + decision log
 ```
@@ -68,6 +70,7 @@ Prerequisites: Python 3.12, Terraform, AWS CLI with credentials, and a Spotify d
    SPOTIFY_CLIENT_ID=...
    SPOTIFY_CLIENT_SECRET=...
    SPOTIFY_REDIRECT_URI=http://127.0.0.1:3000/callback
+   LAST_FM_API_KEY=...
    ```
 2. Get a refresh token (opens a browser; writes `spotify_tokens.json`):
    ```
@@ -75,9 +78,13 @@ Prerequisites: Python 3.12, Terraform, AWS CLI with credentials, and a Spotify d
    python scripts/spotify_auth.py
    ```
 3. Create `terraform/terraform.tfvars` with `spotify_client_id`, `spotify_client_secret`, and `spotify_refresh_token`.
-4. Deploy:
+4. Deploy (Terraform stores the secrets in SSM Parameter Store for the Lambda):
    ```
    cd terraform && terraform init && terraform apply
+   ```
+5. Test. The API route requires AWS IAM auth, so invoke the Lambda directly:
+   ```
+   aws lambda invoke --function-name playlist-recommendation-engine-api out.json
    ```
 
 `.env`, `spotify_tokens.json`, `*.tfvars`, Terraform state, and `notes/` are gitignored. Never commit them.

@@ -13,7 +13,14 @@ CLIENT_ID = os.getenv("SPOTIFY_CLIENT_ID")
 CLIENT_SECRET = os.getenv("SPOTIFY_CLIENT_SECRET")
 REDIRECT_URI = os.getenv("SPOTIFY_REDIRECT_URI")
 
-SCOPES = "user-top-read user-read-recently-played"
+SCOPES = " ".join([
+    "user-top-read",
+    "user-read-recently-played",
+    "user-library-read",
+    "playlist-read-private",
+    "playlist-read-collaborative",
+    "playlist-modify-private",
+])
 
 auth_code = None
 

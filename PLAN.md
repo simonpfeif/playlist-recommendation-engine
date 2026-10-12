@@ -2,7 +2,7 @@
 
 The living roadmap for this project. Update the checkboxes and the **Current focus** line as work lands, and add to the decision log whenever a design choice is made.
 
-**Current focus:** Phase 0, housekeeping and API verification.
+**Current focus:** Phase 0: push the new refresh token to SSM, commit.
 **Last updated:** 2026-10-11
 
 ---
@@ -26,6 +26,8 @@ Every week, deliver a Spotify playlist of 10 songs the user hasn't heard, picked
 | 2026-10-11 | **Weekly, 10 songs.** Get one manual run working before adding any scheduling | Prove the loop end to end first |
 | 2026-10-11 | **No Spotify data export upload** in v1 | Old history says little about current taste; the privacy cost (IP addresses, devices) isn't worth it; the heard set is built from other sources (below). If revisited, parse it in the browser and upload only track ID, timestamp, and play duration |
 | 2026-10-11 | **Taste = recent listening with older plays counting less; heard set = only ever grows** | 2014 listening shouldn't steer 2026 picks, but it should still prevent repeats |
+| 2026-10-12 | **Last.fm scrobble history is the main listening-history source**, with Spotify as backup (Liked Songs, playlists, recent plays) | Real play-by-play history since 2021 vs. Spotify's last 50 plays |
+| 2026-10-12 | **Song versions:** radio edit / extended / remaster / album vs. single / explicit vs. clean / live / acoustic / stripped = **same song** (never recommend if any version is heard). Remixes by another artist and covers = **different song** | Re-recommending a different version of a song you know isn't discovery (Last.fm's homepage did this with "Blame Brett") |
 | 2026-10-11 | **Don't rely on Spotify `popularity`** | Officially removed in Feb 2026; our app still gets it for now. Use Last.fm listener counts for mainstream vs. niche |
 | 2026-10-11 | **Drop the ARTIST#/TRACK# LISTENER cross-reference records** | Collaborative filtering across ≤5 users is pointless; Last.fm/ListenBrainz provide that signal |
 
@@ -33,7 +35,7 @@ Every week, deliver a Spotify playlist of 10 songs the user hasn't heard, picked
 
 - ✅ `/me/top/tracks`, `/me/top/artists` (short ≈ 4 weeks, medium ≈ 6 months, long ≈ 1 year)
 - ✅ `/me/player/recently-played`, last 50 plays only, so poll often and keep the history ourselves
-- ✅ `/me/tracks` (Liked Songs, read in batches) *(needs testing)*
+- ✅ `/me/tracks` (Liked Songs, read in batches)
 - ✅ `/me/playlists` and `/playlists/{id}/items`, only for playlists the user owns or collaborates on
 - ✅ `/search`, max 10 results
 - ✅ `POST /me/playlists`, `POST /playlists/{id}/items` (the old `/users/{id}/playlists` and `/tracks` paths were removed)
@@ -44,13 +46,25 @@ Every week, deliver a Spotify playlist of 10 songs the user hasn't heard, picked
 
 ## Phase 0: Housekeeping and API verification
 
-- [ ] Commit the pending `terraform/main.tf` change (formatting + DynamoDB table) and `terraform apply`. **The table isn't deployed yet**, contrary to the old notes
-- [ ] Lock down the public API Gateway route: it currently returns your listening data to anyone with the URL. Remove it until the BFF exists, or add IAM auth
-- [ ] Move Spotify secrets out of Lambda environment variables into SSM Parameter Store (SecureString); the Lambda reads them at runtime
-- [ ] Update `scripts/spotify_auth.py` scopes and re-run it: add `user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private`
-- [ ] Verify with a quick script: Liked Songs batch reads, reading your own playlist items, search with `track:"..." artist:"..."`, creating a playlist and adding items
-- [ ] Get a Last.fm API key and test `artist.getSimilar`, `track.getSimilar`, `artist.getTopTracks`, `artist.getInfo`
-- [ ] Decide whether to remove the tracked `terraform/output.json` (leftover test output)
+- [x] Commit the pending `terraform/main.tf` change (formatting + DynamoDB table) and `terraform apply`. The table is now deployed
+- [x] Lock down the public API Gateway route: now `AWS_IAM` auth (public URL returns 403); test with `aws lambda invoke --function-name playlist-recommendation-engine-api out.json`
+- [x] Move Spotify secrets out of Lambda environment variables into SSM Parameter Store (SecureString) under `/playlist-recommendation-engine/spotify/*`; the Lambda reads them at runtime. Values still come from `terraform.tfvars`, so they are also in local Terraform state
+- [x] Update `scripts/spotify_auth.py` scopes: add `user-library-read playlist-read-private playlist-read-collaborative playlist-modify-private`
+- [x] Re-run `scripts/spotify_auth.py` (done 2026-10-12, all 6 scopes granted)
+- [ ] Copy the new refresh token into `terraform.tfvars` (done) and `terraform apply` (plan reviewed: 1 change, refresh_token only)
+- [x] Verify with `scripts/verify_spotify.py [--write]`. Results (2026-10-12, new scopes):
+  - ✅ Liked Songs, read in batches (3,298 songs), list my playlists (50 incl. private), read owned playlist items, top tracks long_term, search (returns ISRC + popularity), single artist lookup
+  - ✅ create playlist (`POST /me/playlists`) + add items (`POST /playlists/{id}/items`): test playlist "API test (safe to delete)" created
+  - ⚠️ Spotify genres are patchy: only 30 of 50 top artists have any, so use Last.fm tags as the main genre signal
+- [x] Get a Last.fm API key (`LAST_FM_API_KEY` in `.env`) and run `scripts/verify_lastfm.py`. All 4 methods work; similar artists and tags are good even for niche artists (e.g. Oskar med K → electronic / deep tech, similar artists all in that scene)
+  - ⚠️ `track.getSimilar` returns error 6 "Track not found" for titles Last.fm doesn't know. Phase 1 must skip those seeds, and try `autocorrect=1`
+  - Only the API key is needed; the shared secret is only for user login flows (Phase 5)
+  - ⚠️ Last.fm returns some names HTML-escaped (`Boys &amp; Blondes`), so `html.unescape` every name before matching or searching
+- [x] Check Last.fm user history (`LAST_FM_USERNAME` in `.env`): **64,457 scrobbles from 2021-07-12 to 2026-07-24**, roughly 3–11k per half-year (declining over time). `user.getInfo` playcount showed 0 while scrobbling was disconnected (now correct). 0 loved tracks
+- [x] **Scrobbling stopped on 2026-07-24** (likely an inactive Last.fm login). Reconnected 2026-10-12. The gap can't be recovered from the Spotify API (last 50 plays only); Spotify's short-term top tracks partly cover it
+- [x] Confirm new scrobbles appear: confirmed 2026-10-12 (reconnecting also backfilled the last 50 Spotify plays)
+  - ⚠️ The now-playing track (no `date`) appears on every page of `user.getRecentTracks`, so ingest must skip it
+- [x] Remove the tracked `terraform/output.json` (leftover test output)
 
 ## Phase 1: One manual end-to-end run ← the milestone
 
@@ -62,17 +76,23 @@ Goal: run one command, get a playlist of 10 good songs in your Spotify account. 
 - [ ] `store.py`: DynamoDB reads and writes for the data model below
 
 **1b. Ingest Lambda:** `lambda/ingest/` (invoked manually)
-- [ ] Recent plays → `PLAY#` records + mark heard
+- [ ] Last.fm history → `PLAY#` records + mark heard. The declining yearly counts are real (less listening), not missing data, so recent months are thin (~500 plays/month) and recency weighting must not be too aggressive (e.g. a half-life in months, not weeks). Backfill all ~64k scrobbles once (200 per page ≈ 325 requests), then fetch only new ones with `from=<last seen>`
+- [ ] Spotify recent plays → `PLAY#` records + mark heard (backup for gaps in scrobbling)
 - [ ] Top tracks (short/medium/long) and top artists → `TOPTRACK#`/`TOPARTIST#` + mark heard
 - [ ] Liked Songs (all) → mark heard
 - [ ] Tracks in your own playlists → mark heard
-- [ ] Rebuild `PROFILE` (artist weights + tags, with older plays counting less)
+- [ ] Rebuild `PROFILE` from real play counts (artist weights + Last.fm tags, with older plays counting less)
 
 **1c. Recommend Lambda:** `lambda/recommend/` (invoked manually)
 - [ ] Seeds: top ~20 artists by profile weight + top ~20 short-term tracks
 - [ ] Candidates: Last.fm `artist.getSimilar` → `artist.getTopTracks` for new artists; `track.getSimilar` for top tracks
 - [ ] Score = Σ (similarity × seed weight) − penalties; at most 1 track per artist; target mix of ~7 new artists / ~3 deeper cuts from known artists
-- [ ] Filter: drop the heard set (by Spotify ID, plus normalized `artist|title` to catch duplicate releases)
+- [ ] Filter: drop the heard set, matching on any of:
+  - Spotify track ID
+  - ISRC (the same recording across single/album/deluxe releases)
+  - normalized `artist|title`: lowercase, `html.unescape`, strip punctuation and "feat. X", strip version labels (`- Radio Edit`, `(Extended Mix)`, `(Remastered 2011)`, `(Album Version)`, `(Deluxe)`, `(Live)`, `(Acoustic)`, `(Stripped)`, `- Single Version`, clean/explicit), but keep `<Artist> Remix` in the key
+  - unit tests for the normalizer with real examples ("Black To Gold - Radio Edit" = "Black to Gold")
+- [ ] Never put two versions of the same song in one playlist
 - [ ] Look up each song on Spotify via search; skip if there's no confident match
 - [ ] Create the private playlist `Weekly Picks — <date>` and add the 10 songs; save a `PLAYLIST#` record
 - [ ] Terraform for both Lambdas + IAM (DynamoDB, SSM)
